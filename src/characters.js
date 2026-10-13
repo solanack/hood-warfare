@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { loadGLB, prep } from './assets.js';
+import { isLow } from './quality.js';
 
 export const ROSTER = {
   blue: ['blue_zip', 'navy'],
@@ -34,7 +35,7 @@ export const charactersReady = () => lib.ready;
 // A gun group whose origin is the pistol grip and whose muzzle points down -Z (0.86 m long).
 function makeGun() {
   const g = new THREE.Group(); const inner = SkeletonUtils.clone(lib.gun); g.add(inner);
-  inner.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false; o.renderOrder = 0; } });
+  inner.traverse((o) => { if (o.isMesh) { o.castShadow = !isLow(); o.receiveShadow = false; o.frustumCulled = false; o.renderOrder = 0; } });
   // the template is normalised exactly like the viewmodel: centred, long axis on z, barrel toward -z
   inner.position.set(0, 0.05, -0.10);          // template is centred: grip is ~0.10 m behind centre, below the bore
   g.userData.muzzle = new THREE.Vector3(0, 0.07, -0.55);
@@ -60,18 +61,23 @@ function twoBoneIK(upper, lower, end, target, pole) {
   d = Math.min(d, (la + lb) * 0.999); const dir = _t.normalize();
   const cosA = THREE.MathUtils.clamp((la * la + d * d - lb * lb) / (2 * la * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
   _p.subVectors(pole, _a); _p.addScaledVector(dir, -_p.dot(dir)); if (_p.lengthSq() < 1e-8) _p.set(0, -1, 0); _p.normalize();
-  const elbow = new THREE.Vector3().copy(_a).addScaledVector(dir, la * cosA).addScaledVector(_p, la * sinA);
-  aimBone(upper, new THREE.Vector3().subVectors(_b, _a).normalize(), new THREE.Vector3().subVectors(elbow, _a).normalize());
+  _elbow.copy(_a).addScaledVector(dir, la * cosA).addScaledVector(_p, la * sinA);
+  _from.subVectors(_b, _a).normalize(); _to.subVectors(_elbow, _a).normalize();
+  aimBone(upper, _from, _to);
   lower.getWorldPosition(_b); end.getWorldPosition(_c);
-  const goal = new THREE.Vector3().copy(_a).addScaledVector(dir, d);
-  aimBone(lower, new THREE.Vector3().subVectors(_c, _b).normalize(), new THREE.Vector3().subVectors(goal, _b).normalize());
+  _goal.copy(_a).addScaledVector(dir, d);
+  _from.subVectors(_c, _b).normalize(); _to.subVectors(_goal, _b).normalize();
+  aimBone(lower, _from, _to);
 }
 
+const _fwd = new THREE.Vector3(), _right = new THREE.Vector3(), _grip = new THREE.Vector3();
+const _elbow = new THREE.Vector3(), _goal = new THREE.Vector3(), _from = new THREE.Vector3(), _to = new THREE.Vector3();
+const _gr = new THREE.Vector3(), _fo = new THREE.Vector3(), _pole = new THREE.Vector3(), _euler = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 export class Character {
   constructor(scene, modelName, ghostMat) {
     const src = lib.models[modelName]; this.name = modelName;
-    const root = SkeletonUtils.clone(src.scene); prep(root, { cast: true, receive: false, env: 0.7 });
+    const root = SkeletonUtils.clone(src.scene); prep(root, { cast: !isLow(), receive: false, env: isLow() ? 0 : 0.7 });
     root.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.material = o.material.clone(); } });
     // scale to HEIGHT using the bind-pose bounds
     const bb = new THREE.Box3().setFromObject(root); const s = HEIGHT / Math.max(0.1, bb.max.y - bb.min.y);
@@ -105,19 +111,19 @@ export class Character {
     this.gun.visible = !dead;
     if (dead || !this.b.spine) return;
     // place the rifle relative to the chest, in the character's yaw frame
-    const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)), right = new THREE.Vector3().crossVectors(fwd, UP).normalize(); // character's right side
+    const fwd = _fwd.set(Math.sin(yaw), 0, Math.cos(yaw)), right = _right.crossVectors(fwd, UP).normalize();
     this.b.spine.getWorldPosition(_a);
     const r = this.ready;
-    const grip = _a.clone().addScaledVector(right, THREE.MathUtils.lerp(0.16, 0.12, r)).addScaledVector(UP, THREE.MathUtils.lerp(-0.16, 0.12, r)).addScaledVector(fwd, THREE.MathUtils.lerp(0.22, 0.3, r));
-    this.gun.position.copy(grip);
-    const pitch = THREE.MathUtils.lerp(-0.6, this.aimPitch, r), yawOff = THREE.MathUtils.lerp(-0.55, -0.04, r); // muzzle swings across the body at low ready
-    this.gun.quaternion.setFromEuler(new THREE.Euler(pitch, yaw + Math.PI + yawOff, 0, 'YXZ'));
+    _grip.copy(_a).addScaledVector(right, THREE.MathUtils.lerp(0.16, 0.12, r)).addScaledVector(UP, THREE.MathUtils.lerp(-0.16, 0.12, r)).addScaledVector(fwd, THREE.MathUtils.lerp(0.22, 0.3, r));
+    this.gun.position.copy(_grip);
+    const pitch = THREE.MathUtils.lerp(-0.6, this.aimPitch, r), yawOff = THREE.MathUtils.lerp(-0.55, -0.04, r);
+    this.gun.quaternion.setFromEuler(_euler.set(pitch, yaw + Math.PI + yawOff, 0, 'YXZ'));
     this.gun.updateMatrixWorld(true);
-    // IK both arms onto the gun
-    const gr = this.gun.userData.grip.clone().applyMatrix4(this.gun.matrixWorld), fo = this.gun.userData.fore.clone().applyMatrix4(this.gun.matrixWorld);
+    _gr.copy(this.gun.userData.grip).applyMatrix4(this.gun.matrixWorld);
+    _fo.copy(this.gun.userData.fore).applyMatrix4(this.gun.matrixWorld);
     const b = this.b;
-    if (b.rArm && b.rFore && b.rHand) { b.rArm.getWorldPosition(_b); twoBoneIK(b.rArm, b.rFore, b.rHand, gr, _b.clone().addScaledVector(right, 0.5).addScaledVector(UP, -0.6).addScaledVector(fwd, -0.2)); }
-    if (b.lArm && b.lFore && b.lHand) { b.lArm.getWorldPosition(_b); twoBoneIK(b.lArm, b.lFore, b.lHand, fo, _b.clone().addScaledVector(right, -0.4).addScaledVector(UP, -0.7)); }
+    if (b.rArm && b.rFore && b.rHand) { b.rArm.getWorldPosition(_b); _pole.copy(_b).addScaledVector(right, 0.5).addScaledVector(UP, -0.6).addScaledVector(fwd, -0.2); twoBoneIK(b.rArm, b.rFore, b.rHand, _gr, _pole); }
+    if (b.lArm && b.lFore && b.lHand) { b.lArm.getWorldPosition(_b); _pole.copy(_b).addScaledVector(right, -0.4).addScaledVector(UP, -0.7); twoBoneIK(b.lArm, b.lFore, b.lHand, _fo, _pole); }
   }
   muzzleWorld(out = new THREE.Vector3()) { return out.copy(this.gun.userData.muzzle).applyMatrix4(this.gun.matrixWorld); }
   dispose(scene) { scene.remove(this.obj); scene.remove(this.gun); }

@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { isLow } from './quality.js';
 
 export const manager = new THREE.LoadingManager();
 const gltfLoader = new GLTFLoader(manager);
@@ -28,19 +29,20 @@ export function tex(url, { srgb = false } = {}) {
 // Poly Haven texture set -> MeshStandardMaterial. `size` = real-world metres covered by one tile (set per use).
 export function pbr(slug, opts = {}) {
   const base = `assets/ph/textures/${slug}/`;
+  const low = isLow();
   const m = new THREE.MeshStandardMaterial({
     map: tex(base + 'Diffuse.jpg', { srgb: true }),
-    normalMap: tex(base + 'nor_gl.jpg'),
-    roughnessMap: tex(base + 'arm.jpg'),
-    metalnessMap: tex(base + 'arm.jpg'),
-    aoMap: tex(base + 'arm.jpg'),
-    metalness: 1, roughness: 1,
+    normalMap: low ? null : tex(base + 'nor_gl.jpg'),
+    roughnessMap: low || opts.roughness !== undefined ? null : tex(base + 'arm.jpg'),
+    metalnessMap: low || opts.roughness !== undefined ? null : tex(base + 'arm.jpg'),
+    aoMap: low ? null : tex(base + 'arm.jpg'),
+    metalness: low ? 0 : 1, roughness: opts.roughness ?? (low ? 0.86 : 1),
     color: opts.color ?? 0xffffff,
     vertexColors: !!opts.vertexColors,
     side: opts.side ?? THREE.FrontSide,
-    envMapIntensity: opts.envMapIntensity ?? 1,
+    envMapIntensity: low ? 0 : (opts.envMapIntensity ?? 1),
   });
-  if (opts.normalScale !== undefined) m.normalScale.setScalar(opts.normalScale);
+  if (opts.normalScale !== undefined && m.normalMap) m.normalScale.setScalar(opts.normalScale);
   if (opts.roughness !== undefined) { m.roughnessMap = null; m.roughness = opts.roughness; }
   if (opts.emissive) { m.emissive = new THREE.Color(opts.emissive); m.emissiveIntensity = opts.emissiveIntensity ?? 1; }
   m.name = slug;
@@ -49,6 +51,7 @@ export function pbr(slug, opts = {}) {
 
 // Stillwater trick: a little shader-side grime so flat walls don't read as clean boxes.
 export function weather(material, strength = 0.08) {
+  if (isLow()) return material;
   material.onBeforeCompile = (sh) => {
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWeatherW;')

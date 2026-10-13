@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { pbr } from './assets.js';
 import { colliders } from './world.js';
+import { isLow } from './quality.js';
 
 export const BLOCK = { x: 0.4, y: 0.2, z: 0.2 };   // garden-wall block (a chunk of mortared bricks)
 export const PANEL = { x: 0.8, y: 0.4, z: 0.2 };   // house wall panel
@@ -33,7 +34,7 @@ function wallMaterial(kind, tint) {
   else if (kind === 'siding2') m = pbr('weathered_plank_siding', { color: tint === 0xffffff ? 0xd8d0c4 : tint, normalScale: 0.9 });
   else if (kind === 'roof') m = pbr('grey_roof_tiles', { color: 0x6a6c70, normalScale: 0.9 });
   else m = pbr('white_planks_clean', { color: tint, normalScale: 0.8 });
-  if (kind === 'brick') m.onBeforeCompile = (sh) => {
+  if (kind === 'brick' && !isLow()) m.onBeforeCompile = (sh) => {
     sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
       vec2 e = abs(fract(vMapUv) - 0.5) * 2.0; float edge = smoothstep(0.9, 1.0, max(e.x, e.y));
       diffuseColor.rgb *= 1.0 - edge * 0.22;`);
@@ -55,7 +56,7 @@ function blockGeometry(sz, tile, swap) {
 function makeStructure(scene, items, geo, mat, extra) {
   const unit = extra.kind === 'house' ? PANEL.x : BLOCK.x;
   const solid = items.filter((it) => !it.pane), panes = items.filter((it) => it.pane);
-  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, solid.length)); mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.count = solid.length;
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, solid.length)); mesh.castShadow = !isLow(); mesh.receiveShadow = !isLow(); mesh.frustumCulled = false; mesh.count = solid.length;
   const m = new THREE.Matrix4(), s = new THREE.Vector3(1, 1, 1);
   solid.forEach((it, i) => { it.mesh = mesh; it.mi = i; s.set(it.size.x / unit, 1, 1); mesh.setMatrixAt(i, m.compose(it.p, it.q, s)); });
   mesh.instanceMatrix.needsUpdate = true; scene.add(mesh);
@@ -65,6 +66,7 @@ function makeStructure(scene, items, geo, mat, extra) {
     panes.forEach((it, i) => { it.mesh = paneMesh; it.mi = i; s.set(it.size.x / unit, 1, 1); paneMesh.setMatrixAt(i, m.compose(it.p, it.q, s)); });
     paneMesh.instanceMatrix.needsUpdate = true; scene.add(paneMesh);
   }
+  if (isLow() && extra.kind === 'house') { mesh.visible = false; if (paneMesh) paneMesh.visible = false; }
   const spec = { items, mesh, paneMesh, unit, bodies: null, standing: true, touched: false, colliders: [], slabs: [], statics: null, ...extra };
   D.walls.push(spec); D.blocks += items.length;
   return spec;
@@ -129,7 +131,7 @@ export function addHouse(scene, h) {
   const kind = h.brick ? 'brick' : (h.worn ? 'siding2' : 'siding');
   const spec = makeStructure(scene, items, blockGeometry(PANEL, h.brick ? 1.6 : 1.25, !h.brick), wallMaterial(kind, h.tint), { kind: 'house', mass: PANEL.x * PANEL.y * PANEL.z * DENSITY, house: h, Mrot });
   for (const s of slabs) {
-    const mesh = new THREE.Mesh(blockGeometry(s.size, 1.4, false), wallMaterial('roof', 0)); mesh.castShadow = true; mesh.receiveShadow = true;
+    const mesh = new THREE.Mesh(blockGeometry(s.size, 1.4, false), wallMaterial('roof', 0)); mesh.castShadow = !isLow(); mesh.receiveShadow = !isLow(); mesh.visible = !isLow();
     mesh.position.copy(s.c).applyMatrix4(M); mesh.quaternion.copy(Mrot).multiply(s.q); scene.add(mesh);
     spec.slabs.push({ mesh, size: s.size, p: mesh.position.clone(), q: mesh.quaternion.clone(), body: null });
   }
@@ -205,6 +207,8 @@ export async function initDestruction(scene, { enabled = true } = {}) {
 // the structure has been hit: windows/door vanish (blown out) and its bodies get drawn from the readback
 function shatter(spec) {
   spec.touched = true;
+  spec.mesh.visible = true; if (spec.paneMesh) spec.paneMesh.visible = true;
+  for (const s of spec.slabs) s.mesh.visible = true;
   if (!spec.standing) return; spec.standing = false;
   if (D.mode === 'gpu') for (const s of spec.slabs) s.body.setFixed(false);
   if (spec.statics) for (const m of spec.statics) m.visible = false;

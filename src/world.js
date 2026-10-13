@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { pbr, weather, prep, loadGLB } from './assets.js';
+import { isLow } from './quality.js';
 
 export const MAP = { minX: -43, maxX: 43, minZ: -46, maxZ: 46 };
 // front yards that get a brick wall (destructible) instead of chain-link: 'side:lotIndex'
@@ -276,8 +277,9 @@ export async function buildWorld(scene, Q, progress = () => {}) {
     const x = -36 + i * 9 + rr(-0.5, 0.5);
     buildHouse(b, mat(x, 0, s * 60, s < 0 ? Math.PI / 2 : -Math.PI / 2), { floors: 2, brick: rnd() < 0.4, tint: pick(TINTS), ridgeX: rnd() < 0.6, porch: true, chimney: rnd() < 0.5, collide: false, litChance: 0.3 });
   }
-  const kit = b.build(materials, scene, true);
-  houseBuckets.forEach((hb, i) => { if (houseDescs[i]) houseDescs[i].statics = Object.values(hb.build(materials, scene, true)); });
+  const shadows = !isLow();
+  const kit = b.build(materials, scene, shadows);
+  houseBuckets.forEach((hb, i) => { if (houseDescs[i]) houseDescs[i].statics = Object.values(hb.build(materials, scene, shadows)); });
   progress(0.3);
 
   // ---------- ground ----------
@@ -411,16 +413,17 @@ export async function buildWorld(scene, Q, progress = () => {}) {
   progress(0.78);
 
   // ---------- vegetation ----------
+  const treeNames = isLow() ? ['island_tree_01', 'tree_small_02'] : ['island_tree_01', 'tree_small_02', 'jacaranda_tree'];
   const trees = {};
-  for (const n of ['island_tree_01', 'tree_small_02', 'jacaranda_tree']) trees[n] = await prop(n);
+  for (const n of treeNames) trees[n] = await prop(n);
   const treeSpots = [['island_tree_01', -7.4, -26, 1.0], ['tree_small_02', 7.4, -34, 1.1], ['island_tree_01', -7.4, 2, 0.9], ['island_tree_01', 7.4, 14, 0.95], ['tree_small_02', -7.4, 30, 1.0], ['tree_small_02', 7.4, 38, 0.95],
     ['island_tree_01', -29, -14, 0.85], ['tree_small_02', 30, 6, 0.9], ['island_tree_01', 28, -30, 0.8], ['island_tree_01', -30, 38, 0.8]];
-  const treeCount = Q.mobile ? 4 : 8;
+  const treeCount = isLow() ? 2 : Q.mobile ? 4 : 8;
   for (let i = 0; i < treeCount; i++) { const [n, x, z, s] = treeSpots[i]; const t = placeClone(scene, trees[n], x, 0, z, rnd() * 6, s); const bb = new THREE.Box3().setFromObject(t); const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2; solid(x - 0.45, z - 0.45, x + 0.45, z + 0.45, 0, 4); mapRects.push({ x: x - 2.2, z: z - 2.2, w: 4.4, h: 4.4, type: 'tree' }); }
   // grass clumps + weeds, instanced
   const g1 = await prop('grass_medium_01'), g2 = await prop('grass_medium_02');
   const clumps = [findNode(g1, 'grass_medium_01_tall_a_LOD0'), findNode(g1, 'grass_medium_01_mid_a_LOD0'), findNode(g1, 'grass_medium_01_large_b_LOD0'), findNode(g2, 'grass_medium_02_e'), findNode(g2, 'grass_medium_02_d')];
-  const nGrass = Q.mobile ? 380 : 950, perClump = [[], [], [], [], []];
+  const nGrass = isLow() ? 70 : Q.mobile ? 380 : 950, perClump = [[], [], [], [], []];
   const inHouse = (x, z) => colliders.some((c) => !c.fence && x > c.minX - 0.3 && x < c.maxX + 0.3 && z > c.minZ - 0.3 && z < c.maxZ + 0.3 && c.maxY > 0.5);
   for (let i = 0; i < nGrass; i++) {
     const s = rnd() < 0.5 ? -1 : 1, zone = rnd();
@@ -435,7 +438,7 @@ export async function buildWorld(scene, Q, progress = () => {}) {
   const weeds = { nettle_plant: 1, weed_plant_02: 1, dandelion_01: 1, wild_rooibos_bush: 1 };
   for (const n in weeds) {
     const w = await prop(n); const items = [];
-    const count = Q.mobile ? 8 : 16;
+    const count = isLow() ? 0 : Q.mobile ? 8 : 16;
     for (let i = 0; i < count; i++) { const s = rnd() < 0.5 ? -1 : 1; const x = s * (rnd() < 0.5 ? rr(31, 33) : rr(24.6, 26)); const z = rr(-40, 40); if (!inHouse(x, z)) items.push({ x, z, r: rnd() * 6.28, s: rr(0.8, 1.4) }); }
     if (items.length) instanced(scene, firstMesh(w), items, { cast: false });
   }

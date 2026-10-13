@@ -18,6 +18,7 @@ export function initHud() {
   el.off = off; el.S = S; el.W = W; el.H = H;
   el.hud.classList.add('on');
 }
+const _lv = new THREE.Vector3();
 export const hud = {
   fps(v) { el.fps.textContent = 'FPS ' + v; },
   score(red, blue) { el.sRed.textContent = red; el.sBlue.textContent = blue; el.state.textContent = blue > red ? 'WINNING' : blue < red ? 'LOSING' : 'TIED'; },
@@ -39,12 +40,11 @@ export const hud = {
   labels(camera, items) {
     // items: {pos, name, team, dist}
     let i = 0; const kids = el.labels.children;
-    const v = new THREE.Vector3();
     for (const it of items) {
       let d = kids[i]; if (!d) { d = document.createElement('div'); d.className = 'lab'; d.innerHTML = '<i></i><span></span>'; el.labels.appendChild(d); }
-      v.copy(it.pos); v.project(camera);
-      if (v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1) { d.style.display = 'none'; i++; continue; }
-      d.style.display = ''; d.style.left = ((v.x + 1) / 2 * innerWidth) + 'px'; d.style.top = ((1 - v.y) / 2 * innerHeight) + 'px';
+      _lv.copy(it.pos); _lv.project(camera);
+      if (_lv.z > 1 || _lv.x < -1.1 || _lv.x > 1.1 || _lv.y < -1.1 || _lv.y > 1.1) { d.style.display = 'none'; i++; continue; }
+      d.style.display = ''; d.style.left = ((_lv.x + 1) / 2 * innerWidth) + 'px'; d.style.top = ((1 - _lv.y) / 2 * innerHeight) + 'px';
       d.className = 'lab' + (it.team === 'red' ? ' red' : ''); d.lastChild.textContent = it.name ? `${it.name} · ${it.dist} m` : `${it.dist} m`; i++;
     }
     for (; i < kids.length; i++) kids[i].style.display = 'none';
